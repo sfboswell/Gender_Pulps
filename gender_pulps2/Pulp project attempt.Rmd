@@ -1,0 +1,1715 @@
+
+---
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+---
+title: "Gendergit"
+output:
+  pdf_document: default
+  word_document: default
+
+```{r setup, include=F, cache=F}
+
+knitr::opts_chunk$set(comment=NA,
+                      error=F,            # check output carefully for errors
+                      warning=F,
+                      message=F,
+                      cache=T, autodep=T, # but set these to false if necessary
+                      echo=F)  
+ knitr::opts_chunk$set(dev="pdf")
+# omit source code from output
+# you can override these global settings on particular chunks
+# more libraries here
+library("litdata")
+library("dplyr")
+library ("tidyr")
+library ("igraph")
+```
+
+```{r full network information}
+
+#read in the data
+
+authors <- read.table("/Users/Samuel/Downloads/R work /isfdb-tsv/tsv/authors.tsv", sep="\t", 
+                      header=T, stringsAsFactors=F, quote="", 
+                      comment.char="", encoding="UTF-8", fileEncoding="UTF-8")
+ 
+pubs <- read.table("tsv/pubs.tsv", sep="\t", 
+                   header=T, stringsAsFactors=F, quote="", 
+                   comment.char="", encoding="UTF-8", fileEncoding="UTF-8")
+
+titles <- read.table("tsv/titles.tsv", sep="\t", 
+                     header=T, stringsAsFactors=F, quote="", 
+                     comment.char="", encoding="UTF-8", fileEncoding="UTF-8")
+
+
+pub_content <- read.table("tsv/pub_content.tsv", sep="\t", 
+                          header=T, stringsAsFactors=F, quote="", 
+                          comment.char="", encoding="UTF-8", 
+                          fileEncoding="UTF-8")
+
+
+canonical_authors <- read.table("tsv/canonical_author.tsv", sep="\t", 
+                                header=T, stringsAsFactors=F, quote="", 
+                                comment.char="", encoding="UTF-8", 
+                                fileEncoding="UTF-8")
+
+#filter out the magazines of interest 
+#Astounding Stories & Wonder Stories appear twice because they went through name changes
+
+our_canon <- pubs  %>% filter(str_detect(pub_title, ("^Amazing Stories|^Astounding Stories|^Wonder Stories|^Thrilling Wonder|^Planet Stories|^Startling Stories|^Fantastic Adventures|^Weird Tales|^Astounding Science-Fiction")))
+
+#join publication information to information about the titles
+
+our_canon_df <- pub_content  %>% inner_join (our_canon, by="pub_id")  %>%
+inner_join (titles, by="title_id")
+
+#join that dataframe to information about the authors
+
+our_canon_df <- canonical_authors  %>%
+inner_join (our_canon_df, by="title_id")  %>%
+inner_join (authors, by="author_id")
+
+#select four columns: publication title, publication year, title and author
+
+our_canon_df <- our_canon_df %>% select (pub_title, pub_year, title_title, author_canonical)
+
+#change names of publications to one word for easier searching/graphing
+#and to compensate for database inconsistencies 
+#for example: Astounding being named "Astounding Science Fiction" for one entry
+#and "Astounding Science-Fiction" for the next
+
+giant_network <- our_canon_df   %>%  
+  mutate (pub_title= gsub ("Weird Tales.*", "Weird", pub_title))  %>% 
+  mutate (pub_title =gsub ("Amazing Stories, .*", "Amazing", pub_title))  %>%  
+  mutate (pub_title=gsub ("Amazing Stories.*, .*", "Amazing", pub_title)) %>% 
+  mutate (pub_title=gsub (".*Wonder Stories, .*", "Wonder", pub_title))  %>% 
+  mutate (pub_title=gsub ("Wonder Stories.*, .*", "Wonder", pub_title))  %>% 
+  mutate (pub_title=gsub ("Astounding Stories .*, .*", "Astounding", pub_title))   %>% 
+  mutate (pub_title=gsub ("Astounding Science-Fiction, .*", "Astounding", pub_title)) %>%
+  mutate (pub_title=gsub ("Astounding Stories, .*", "Astounding", pub_title)) %>%
+  mutate (pub_title=gsub ("Startling Stories, .*", "Startling", pub_title)) %>%
+  mutate (author_canonical=gsub ("^John W. .*", "Campbell", author_canonical)) %>%
+    mutate (pub_title=gsub ("^Planet Stories, .*", "Planet", pub_title)) %>%
+   mutate (pub_title=gsub ("^Fantastic Adventures, .*", "Fantastic", pub_title)) 
+
+```
+  
+ Full network, greater than 5
+```{r, fig.height=8, fig.width=8, fig.cap= "All authors with more than 5 works (1926-1946)" }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+#add shapes to nodes  
+V(giant_network_graph)$size <- 3
+vshape <- rep("circle", vcount(giant_network_graph))
+vshape [V(giant_network_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(giant_network_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Weird"]<-"square"
+vshape [V(giant_network_graph)$name=="Wonder"]<-"square"
+vshape [V(giant_network_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Startling"]<-"square"
+vshape [V(giant_network_graph)$name=="Planet"]<-"rectangle"
+V(giant_network_graph)$shape <-vshape
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "red"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.size=4, vertex.label=NA) 
+
+
+```
+
+```{r, fig.height=8, fig.width=8, fig.cap= "All authors with more than 5 works (1926-1946)" }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+
+#add colors to nodes
+
+#add shapes to nodes
+V(giant_network_graph)$size <- 3
+vshape <- rep("circle", vcount(giant_network_graph))
+vshape [V(giant_network_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(giant_network_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Weird"]<-"square"
+vshape [V(giant_network_graph)$name=="Wonder"]<-"square"
+vshape [V(giant_network_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(giant_network_graph)$name=="Starling"]<-"sphere"
+vshape [V(giant_network_graph)$name=="Planet"]<-"rectangle"
+V(giant_network_graph)$shape <-vshape
+
+#add colors to nodes
+vcolors <- rep("white", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "black"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "black"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "black"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "white"
+
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.label=NA) 
+
+```
+
+
+```{r, fig.height=8, fig.width=8 }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 10) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+#add shapes to nodes
+  
+  V(giant_network_graph)$size <- 3
+vshape <- rep("circle", vcount(giant_network_graph))
+vshape [V(giant_network_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(giant_network_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Weird"]<-"square"
+vshape [V(giant_network_graph)$name=="Wonder"]<-"square"
+vshape [V(giant_network_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Startling"]<-"square"
+vshape [V(giant_network_graph)$name=="Planet"]<-"rectangle"
+V(giant_network_graph)$shape <-vshape
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "red"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.size=4, vertex.label=NA) 
+
+```
+
+```{r, fig.height=8, fig.width=8 }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 10) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+
+#add shapes to nodes
+V(giant_network_graph)$size <- 3
+vshape <- rep("circle", vcount(giant_network_graph))
+vshape [V(giant_network_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(giant_network_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Weird"]<-"square"
+vshape [V(giant_network_graph)$name=="Wonder"]<-"square"
+vshape [V(giant_network_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(giant_network_graph)$name=="Starling"]<-"sphere"
+vshape [V(giant_network_graph)$name=="Planet"]<-"rectangle"
+V(giant_network_graph)$shape <-vshape
+
+#add colors to nodes
+vcolors <- rep("white", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "black"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "black"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "black"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "white"
+
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.label=NA) 
+
+
+```
+
+```{r, fig.height=8, fig.width=8 }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 15) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "red"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.size=4, vertex.label=NA) 
+
+
+```
+
+```{r, fig.height=8, fig.width=8 }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 15) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+
+#add colors to nodes
+
+#add shapes to nodes
+V(giant_network_graph)$size <- 3
+vshape <- rep("circle", vcount(giant_network_graph))
+vshape [V(giant_network_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(giant_network_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Weird"]<-"square"
+vshape [V(giant_network_graph)$name=="Wonder"]<-"square"
+vshape [V(giant_network_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(giant_network_graph)$name=="Starling"]<-"sphere"
+vshape [V(giant_network_graph)$name=="Planet"]<-"rectangle"
+V(giant_network_graph)$shape <-vshape
+
+#add colors to nodes
+vcolors <- rep("white", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "black"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "black"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "black"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "white"
+
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.label=NA) 
+
+```
+
+```{r, fig.cap= "Full Network, 1926-1931", fig.width=8, fig.height=8}
+
+#filter years of interest
+giant_network_1931 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+ giant_network_matrix31 <- as.matrix (giant_network_1931) 
+ giant_network_graph31 <- graph.edgelist (giant_network_matrix31, directed=F) 
+ giant_network_graph31 <- simplify (giant_network_graph31)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph31))
+vcolors [V(giant_network_graph31)$name == "Astounding"] <- "royalblue4"
+vcolors [V(giant_network_graph31)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph31)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph31)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph31)$name == "Fantastic"] <- "gray0"
+vcolors [V(giant_network_graph31)$name == "Startling"] <- "red4"
+vcolors [V(giant_network_graph31)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph31, vertex.color=vcolors, vertex.label.color=c("black"),  vertex.size=6, vertex.label.cex=.6) 
+
+vcount (giant_network_graph31)
+ecount (giant_network_graph31)
+
+```
+
+```{r, fig.cap= "Full Network, 1932-1939", fig.width=8, fig.height=8}
+
+#filter years of interest
+giant_network_1939 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1932|^1933|^1934|^1935|^1936|^1937|^1938")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+(set.seed(42))
+
+#turn data into matrix
+#prepare matrix for graphing
+
+ giant_network_matrix39 <- as.matrix (giant_network_1939) 
+ giant_network_graph39 <- graph.edgelist (giant_network_matrix39, directed=F) 
+ giant_network_graph39 <- simplify (giant_network_graph39)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph39))
+vcolors [V(giant_network_graph39)$name == "Astounding"] <- "royalblue4"
+vcolors [V(giant_network_graph39)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph39)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph39)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph39)$name == "Fantastic"] <- "gray0"
+vcolors [V(giant_network_graph39)$name == "Startling"] <- "red4"
+vcolors [V(giant_network_graph39)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph39, vertex.color=vcolors, vertex.size=6, vertex.label.cex=.6,vertex.label.color=c("black")) 
+
+vcount (giant_network_graph39)
+ecount (giant_network_graph39)
+
+```
+
+```{r, fig.cap= "Full Network, 1940-1946", fig.width=8, fig.height=10}
+
+#filter years of interest
+giant_network_1946 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42))
+
+ giant_network_matrix46 <- as.matrix (giant_network_1946) 
+ giant_network_graph46 <- graph.edgelist (giant_network_matrix46, directed=F) 
+ giant_network_graph46 <- simplify (giant_network_graph46)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph46))
+vcolors [V(giant_network_graph46)$name == "Astounding"] <- "royalblue4"
+vcolors [V(giant_network_graph46)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph46)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph46)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph46)$name == "Fantastic"] <- "gray0"
+vcolors [V(giant_network_graph46)$name == "Startling"] <- "red4"
+vcolors [V(giant_network_graph46)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph46, vertex.color=vcolors, vertex.label=NA, vertex.size=3, vertex.label.cex=.4,vertex.label.color=c("black")) 
+
+
+```
+Full Network, 1940-1946, +15 works 
+```{r, fig.cap= "Founding Fathers, full", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^E. E. Smith*|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^Campbell|^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber*|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Arthur C. Clarke|^Richard Matheson|^Poul Anderson|^James Blis|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Don A. Stuart"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "yellow"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red4"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+vcount (founding_fathers_37graph)
+ecount (founding_fathers_37graph)
+
+```  
+
+```{r, fig.cap= "Founding Fathers, full", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^E. E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^Campbell|^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Arthur C. Clarke|^Richard Matheson|^Poul Anderson|^James Blis|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Don A. Stuart"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red4"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+
+```  
+
+```{r, fig.cap= "Founding Fathers, full", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  mutate (author_canonical= gsub ("E. E. Smith.*, Edward E. Smith, Ph.D.", "E.E. Smith", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^E. E. Smith|^Edward E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^Campbell|^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Richard Matheson|^Poul Anderson|^James Blish|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Don A. Stuart"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red4"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+
+```  
+
+```{r, fig.cap= "Founding Fathers, full", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^Edward E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^John W. |^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Richard Matheson|^Poul Anderson|^James Blish|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Campbell"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "yellow"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+```  
+
+```{r, fig.cap= "Founding Fathers, full", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^Edward E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^John W. |^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Richard Matheson|^Poul Anderson|^James Blish|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Campbell"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "yellow"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+```  
+
+```{r, fig.cap= "Full network, 1926-1946", fig.height=8, fig.width=8, fig.cap="Full Network, 1926-1946. Amazing=Electric Blue, Astounding=Dark Blue, Weird=Pink, Wonder=purple, Fantastic=Black, Startling=Red, Planet=Green, Authors=Orange" }
+
+#select the years of interest 
+#filter to only include higher count authors (+5 publications)
+
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 69) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+(set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+
+#simplify edges: one edge per author connection (rather than one edge per publication)
+#so if Lovecraft ever published in Weird Tales he gets an edge
+#it doesn't matter if he's published 5 or 50 times 
+
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "red"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "springgreen4"
+
+plot (giant_network_graph, vertex.color=vcolors, vertex.size=4) 
+
+```
+
+```{r, fig.cap= "Full network, 1926-1946", fig.height=8, fig.width=8, fig.cap="Full Network, 1926-1946. Amazing=Electric Blue, Astounding=Dark Blue, Weird=Pink, Wonder=purple, Fantastic=Black, Startling=Red, Planet=Green, Authors=Orange" }
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Seabury Quinn|^Henry Kuttner|^Manly Wade Wellman|^Jack Williamson|^Clark Ashton Smith|^Nat Schachner|^
+Ray Cummings|^Eando Binder|^Robert Moore Williams|^Robert Fuqua"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph) 
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "yellow"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+
+```
+
+```{r, fig.cap= "Founding Fathers, 1926-1931", fig.height=8, fig.width=8}
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^Edward E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^John W. |^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Richard Matheson|^Poul Anderson|^James Blish|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Campbell"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph)
+
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red4"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+vcount (founding_fathers_37graph)
+ecount (founding_fathers_37graph)
+
+``` 
+
+1932-1938 
+```{r, fig.cap= "Founding Fathers, 1932-1938", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^Edward E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^John W. |^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Richard Matheson|^Poul Anderson|^James Blish|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Campbell"))) %>%
+  filter (str_detect (pub_year, ("^1932|^1933|^1934|^1935|^1936|^1937|^1938"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red4"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+
+```  
+
+```{r, fig.cap= "Founding Fathers, 1938-1946", fig.height=8, fig.width=8}
+
+#filter the Guests of Honor and the years of interest 
+
+founding_fathers_37 <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  mutate (author_canonical= gsub ("Fritz Leiber.*", "Fritz Leiber", author_canonical))  %>%
+  filter (str_detect (author_canonical, ("^Frank R. Paul|^Edward E. Smith|^Robert A. Heinlein|^A. E. van Vogt|^E. Mayne|^John W. |^Robert Bloch|^Bob Tucker|^Lloyd A. Eshbach|^Ted Carnell|^Anthony Boucher|^Fritz Leiber|^Hugo Gernsback|^Willy Ley|^Isaac Asimov|^Sam Moskowitz|^Richard Matheson|^Poul Anderson|^James Blish|^Theodore Sturgeon|^Murray Leinster|^Leigh Brackett|^Edmond Hamilton|^Forrest J.|^Campbell"))) %>%
+  filter (str_detect (pub_year, ("^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix
+#prepare matrix for graphing
+
+
+founding_fathers_37matrix <- as.matrix (founding_fathers_37) 
+founding_fathers_37graph <- graph.edgelist (founding_fathers_37matrix, directed=F) 
+founding_fathers_37graph <- simplify (founding_fathers_37graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(founding_fathers_37graph))
+vcolors [V(founding_fathers_37graph)$name == "Amazing"] <- "cyan"
+vcolors [V(founding_fathers_37graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(founding_fathers_37graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(founding_fathers_37graph)$name == "Wonder"] <- "plum"
+vcolors [V(founding_fathers_37graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(founding_fathers_37graph)$name == "Startling"] <- "red4"
+vcolors [V(founding_fathers_37graph)$name == "Planet"] <- "springgreen4"
+
+plot (founding_fathers_37graph, vertex.color=vcolors,vertex.label.cex=.7, vertex.size=6,vertex.label.color=c("black"))
+
+```  
+
+``` {r fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+#add shapes to nodes
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Startling"]<-"square"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label=NA, vertex.size=5)
+
+
+```
+``` {r, fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Starling"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("white", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "white"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label=NA, vertex.size=5) 
+
+
+```
+
+``` {r, fig.cap="Gender in SF Pulps, 1926-1931", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+```
+
+``` {r, fig.cap="Gender in SF Pulps, 1931-1938", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1932|^1933|^1934|^1935|^1936|^1937"))) %>%
+  select (pub_title, author_canonical)
+
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+
+```` 
+
+``` {r, fig.cap="Gender in SF Pulps, 1931-1938", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral|^Z. B. Bishop|^.Cabral|^Loretta Burrough"))) %>%
+  filter (str_detect (pub_year, ("^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+
+```` 
+
+
+``` {r, fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"square"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.color="black", vertex.label.family="Times",vertex.label.cex=.5, vertex.size=6)
+
+```
+
+``` {r, fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Starling"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("white", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "white"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.label.color="black", vertex.size=5) 
+
+```
+
+
+``` {r, fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Starling"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("white", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "white"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.7, vertex.label.color="black", vertex.size=5) 
+```
+
+``` {r, fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"square"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.color="black", vertex.label.family="Times",vertex.label.cex=.5, vertex.size=6) 
+
+```
+
+
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+```
+Top 5, 1926-1931 unsimplified
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^ Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+```
+Women, Top 5, 1932-1938, Unsimplified 
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1932|^1933|^1934|^1935|^1936|^1937|^1938"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+```
+Top 5 women, 1932-1938, Simplified 
+
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1932|^1933|^1934|^1935|^1936|^1937|^1938"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify(pulp_women_graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+```
+Top 5, 1938-1946, Unsimplified
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+````
+Top 5, 1938-1946, Simplified 
+
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph) 
+                      
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.color="black", vertex.label.family="Times",vertex.label.cex=.75, vertex.size=6)
+
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+````
+Top 10 women
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 10) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.color="black", vertex.label.family="Times",vertex.label.cex=.75, vertex.size=6)
+
+vcount (pulp_women_graph)
+ecount(pulp_women_graph)
+```
+
+Top 10 women
+``` {r, fig.cap="Women with more than 10 publications", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 10) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Starling"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("white", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "white"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.label.color="black", vertex.size=5) 
+
+```
+``` {r, fig.cap="Women with more than 10 publications", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 10) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add colors to nodes
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Startling"]<-"square"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.label.color="black", vertex.size=5) 
+
+```
+
+Top 15 
+``` {r, fig.cap="Women with more than 15 publications", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 15) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Startling"]<-"square"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.color="black", vertex.label.family="Times",vertex.label.cex=.6, vertex.size=6)
+
+
+```
+
+``` {r, fig.cap="Women with more than 15 publications", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 15) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+#add shapes to nodes
+V(pulp_women_graph)$size <- 3
+vshape <- rep("circle", vcount(pulp_women_graph))
+vshape [V(pulp_women_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(pulp_women_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(pulp_women_graph)$name=="Weird"]<-"square"
+vshape [V(pulp_women_graph)$name=="Wonder"]<-"square"
+vshape [V(pulp_women_graph)$name=="Fantastic"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Starling"]<-"sphere"
+vshape [V(pulp_women_graph)$name=="Planet"]<-"rectangle"
+V(pulp_women_graph)$shape <-vshape
+#add colors to nodes
+
+vcolors <- rep("white", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "black"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "dimgrey"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "white"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.color="black", vertex.label.family="Times",vertex.label.cex=.6, vertex.size=6)
+
+```
+
+``` {r, fig.cap="Gender in SF Pulps, 1926-1946", fig.width=8, fig.height=8}
+
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  distinct () %>% group_by (author_canonical)  %>% filter (n() > 20) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(pulp_women_graph))
+vcolors [V(pulp_women_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(pulp_women_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(pulp_women_graph)$name == "Astounding"] <- "royalblue4"
+vcolors [V(pulp_women_graph)$name == "Wonder"] <- "plum"
+vcolors [V(pulp_women_graph)$name == "Fantastic"] <- "gray0"
+vcolors [V(pulp_women_graph)$name == "Startling"] <- "red4"
+vcolors [V(pulp_women_graph)$name == "Planet"] <- "springgreen4"
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label.cex=.5, vertex.size=5)
+
+
+```

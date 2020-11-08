@@ -89,3 +89,61 @@ encoding="UTF-8", fileEncoding="UTF-8")
 ``` 
 
 Crucially, when you move on to the network analysis portion, the tsv folder of the bibliographic data must be in the same folder as the filename.rmd., or else everything else goes to hell in a handbasket. Choose your working directory with care. 
+
+**Creating the networks** 
+
+Once you've got tsv files with bibliographic (or other) data, you can move on to creating networks. My process for creating networks of publishing relationships went as follows: 
+
+First, I read in the data from the tsv files (again, this is why it's crucial to choose your working directory with care, and to make sure the tsv folder is in the same folder as your file). 
+
+The author data: 
+``` 
+remember that "tsv/author.tsv" will look different depending on your filename 
+
+authors <- read.table("tsv/authors.tsv", sep="\t", 
+                      header=T, stringsAsFactors=F, quote="", 
+                      comment.char="", encoding="UTF-8", fileEncoding="UTF-8")
+```
+
+Publication data: 
+
+``` 
+#remember that "tsv/pubs.tsv" will look different depending on your filename 
+
+pubs <- read.table("tsv/pubs.tsv", sep="\t", 
+                   header=T, stringsAsFactors=F, quote="", 
+                   comment.char="", encoding="UTF-8", fileEncoding="UTF-8")
+``` 
+Titles data 
+
+```
+#remember that "tsv/titles.tsv" will look different depending on your filename 
+
+titles <- read.table("tsv/titles.tsv", sep="\t", 
+                     header=T, stringsAsFactors=F, quote="", 
+                     comment.char="", encoding="UTF-8", fileEncoding="UTF-8")
+``` 
+Repeat as needed for every table you need - which in this case was canonical_authors and pub_content. At the end, you'll have five "tables" accessible by your code - "titles," "pubs," "authors," "canonical_authors," and "pub_content." 
+
+You may want to filter down magazines or publications of interest at this point. In the case of this project, ISFDB contains thousands more magazines than any network could possibly handle - so I choose a sampling to focus on, using ```str_detect``` to pull information out of ```pubs```. 
+
+``` 
+our_canon <- pubs  %>% 
+           filter(str_detect(pub_title, ("^Amazing Stories|^Astounding Stories|^Wonder Stories|^Thrilling Wonder|^Planet Stories|^Startling Stories|^Fantastic       Adventures|^Weird Tales|^Astounding Science-Fiction")))
+```
+Having created a new canon ```our_canon```, now it's time to make sure the publication information we pulled out is tied to information about titles and authors 
+
+``` 
+#join publication information to information about the titles
+
+our_canon_df <- pub_content  %>% inner_join (our_canon, by="pub_id")  %>%
+inner_join (titles, by="title_id")
+
+#join that dataframe to information about the authors
+
+our_canon_df <- canonical_authors  %>%
+inner_join (our_canon_df, by="title_id")  %>%
+inner_join (authors, by="author_id")
+
+``` 
+

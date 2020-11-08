@@ -152,7 +152,7 @@ inner_join (authors, by="author_id")
 
 ``` 
 ISFDB's database had a lot of small inconsistencies (for example, the magazine "Astounding" was called  "Astounding Science Fiction" for one entry
-and "Astounding Science-Fiction" for the next. Of course, Wonder Stories (for example) had multiple names over its run, so I needed a way to search for all of them at once. In order to make it possible to create networks of *all* the instances of Astounding (or any other magazine), I 
+and "Astounding Science-Fiction" for the next. Then something like Wonder Stories had multiple names over its run, so I needed a way to search for all of them at once. In order to make it possible to create networks of *all* the instances of Astounding (or any other magazine), I 
 1. changed the names of the publication to one word for easier graphing/ searching using ```mutate``` and ```gsub``` 
 2. changed names of authors/magazines to compensate for database inconsistencies. 
 

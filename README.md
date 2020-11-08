@@ -4,7 +4,7 @@ This code uses R to analyze (gendered) patterns in publication, primarily throug
 
 This software is free to use, copy, modify, and distribute under the MIT license (in other words, please credit me if you do use it). 
 
-**The Files**   
+**The Files**  \
 
 
 Before you do anything else, you're going to need some tsv files for R to analyze. If you already have tsv files of bibliographic information, you're ahead of the curve. In the case of the project I worked on, the bibliographic data I worked with did not exist in tsv files. It existed on the Internet Science Fiction Database (ISFDB) in MySQL format. 

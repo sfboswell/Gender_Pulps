@@ -92,9 +92,10 @@ encoding="UTF-8", fileEncoding="UTF-8")
 
 Crucially, when you move on to the network analysis portion, the tsv folder of the bibliographic data must be in the same folder as the filename.rmd., or else everything else goes to hell in a handbasket. Choose your working directory with care. 
 
-**Creating the networks** 
+**Prepare the data for the networks** 
+*** 
 
-Once you've got tsv files with bibliographic (or other) data, you can move on to creating networks. My process for creating networks of publishing relationships went as follows: 
+Once you've got tsv files with bibliographic (or other) data, you can move on to creating networks. But before you can even create some networks, you've got to filter the data. There's a tremendous amount of information within the tsv files, and only a small percentage of it will be of interest. 
 
 First, I read in the data from the tsv files (again, this is why it's crucial to choose your working directory with care, and to make sure the tsv folder is in the same folder as your file). 
 
@@ -148,4 +149,135 @@ inner_join (our_canon_df, by="title_id")  %>%
 inner_join (authors, by="author_id")
 
 ``` 
+ISFDB's database had a lot of small inconsistencies (for example, the magazine "Astounding" was called  "Astounding Science Fiction" for one entry
+and "Astounding Science-Fiction" for the next. Of course, Wonder Stories (for example) had multiple names over its run, so I needed a way to search for all of them at once. In order to make it possible to create networks of *all* the instances of Astounding (or any other magazine), I 
+1. changed the names of the publication to one word for easier graphing/ searching using ```mutate``` and ```gsub``` 
+2. changed names of authors/magazines to compensate for database inconsistencies. 
 
+Some of those inconsistencies I only discovered mid-way through the research (for example, I'd make a network where I *knew* John Campbell should appear, and then he wasn't there, which is how I discovered his name had multiple spellings. The smoothing out of the bibliographic data was an iterative process. 
+
+```
+giant_network <- our_canon_df   %>%  
+  mutate (pub_title= gsub ("Weird Tales.*", "Weird", pub_title))  %>% 
+  mutate (pub_title =gsub ("Amazing Stories, .*", "Amazing", pub_title))  %>%  
+  mutate (pub_title=gsub ("Amazing Stories.*, .*", "Amazing", pub_title)) %>% 
+  mutate (pub_title=gsub (".*Wonder Stories, .*", "Wonder", pub_title))  %>% 
+  mutate (pub_title=gsub ("Wonder Stories.*, .*", "Wonder", pub_title))  %>% 
+  mutate (pub_title=gsub ("Astounding Stories .*, .*", "Astounding", pub_title))   %>% 
+  mutate (pub_title=gsub ("Astounding Science-Fiction, .*", "Astounding", pub_title)) %>%
+  mutate (pub_title=gsub ("Astounding Stories, .*", "Astounding", pub_title)) %>%
+  mutate (pub_title=gsub ("Startling Stories, .*", "Startling", pub_title)) %>%
+  mutate (author_canonical=gsub ("^John W. .*", "Campbell", author_canonical)) %>%
+    mutate (pub_title=gsub ("^Planet Stories, .*", "Planet", pub_title)) %>%
+   mutate (pub_title=gsub ("^Fantastic Adventures, .*", "Fantastic", pub_title)) 
+   ``` 
+Now you should have the basic data, represented here by ```giant_network```, to create publishing networks. Obviously, if you were interested in different magazines, you could play around with substitutions - the limits here are only within the database itself. 
+
+**Creating the Networks** 
+*** 
+
+Finally, it's time to create the networks. Here, your interests will dictate what kind of networks you create. Assuming you're interested in replicating my process, here are the networks I created. 
+
+First, boilerplate information for RStudio to generate the figures (the networks) - I wanted something square. 
+``` 
+{r, fig.height=8, fig.width=8, fig.cap= "All authors with more than 5 works (1926-1946)" }
+``` 
+Then I selected the years I was interested in (```filter (str_detect (pub_year) ``` )- in this case, I wanted to know publication patterns for the SF pulp period to the golden age (1926-1946). These years changed over the nearly half dozen years I worked on this project, but this ten year spread ended up being the easiest to work within. 
+
+
+I also filtered the data so it only included authors who wrote 5 or more works (```filter (n() > 5) %>%```) during the 1926-1946 period. Before I did this, the networks were nigh-unreadable because there were just so many authors.  
+
+``` 
+giant_network_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1941|^1942|^1943|^1944|^1945|^1946")))  %>%
+  distinct ()  %>% group_by (author_canonical)  %>% filter (n() > 5) %>%
+  select (pub_title, author_canonical)
+  ``` 
+  The next task is to convert the data into a matrix, and then the matrix into a graph. I simplified the edges of the network so that there was one edge per author connection to a publication (rather than one edge per publication). In other words, if an author (say, H.P. Lovecraft) ever published in *Weird Tales* , they were connected to the magazine through an edge. Unsimplified, if Lovecraft published in *Weird Tales* 50 times, he would have 50 edges, whereas if he published one time, he would have one edge. 
+  
+  ``` 
+  (set.seed(42)) 
+
+ giant_network_matrix <- as.matrix (giant_network_df) 
+ giant_network_graph <- graph.edgelist (giant_network_matrix, directed=F) 
+  giant_network_graph <- simplify (giant_network_graph)
+  
+  ``` 
+ 
+For *aesthetic* purposes - and, in fact, for access purposes - I added both shapes and colors to the nodes. This proved to be one of the most difficult parts of the process. While the printed version of the article version of this project will appear in Black and White, if you do network analysis of any stripe, I highly recommend that you not only commit to color, but consider accessibility in color (i.e: which colors work for colorblind readers). 
+
+``` 
+#add shapes to nodes
+V(giant_network_graph)$size <- 3
+vshape <- rep("circle", vcount(giant_network_graph))
+vshape [V(giant_network_graph)$name == "Astounding"] <- "rectangle"
+vshape [V(giant_network_graph)$name=="Amazing"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Weird"]<-"square"
+vshape [V(giant_network_graph)$name=="Wonder"]<-"square"
+vshape [V(giant_network_graph)$name=="Fantastic"]<-"rectangle"
+vshape [V(giant_network_graph)$name=="Startling"]<-"square"
+vshape [V(giant_network_graph)$name=="Planet"]<-"rectangle"
+V(giant_network_graph)$shape <-vshape
+
+#add colors to nodes
+
+vcolors <- rep("orange", vcount(giant_network_graph))
+vcolors [V(giant_network_graph)$name == "Astounding"] <- "yellow"
+vcolors [V(giant_network_graph)$name == "Amazing"] <- "cyan"
+vcolors [V(giant_network_graph)$name == "Weird"] <- "mediumvioletred"
+vcolors [V(giant_network_graph)$name == "Wonder"] <- "plum"
+vcolors [V(giant_network_graph)$name == "Fantastic"] <- "gray"
+vcolors [V(giant_network_graph)$name == "Startling"] <- "red"
+vcolors [V(giant_network_graph)$name == "Planet"] <- "springgreen4"
+``` 
+Finally, we plot the network! 
+```
+plot (giant_network_graph, vertex.color=vcolors, vertex.size=4, vertex.label=NA) 
+``` 
+This particular network will show the "prolific" authors who published in SF magazines between 1926-1946, and which magazines they published in. 
+
+Other networks in this project were created by changing the number of publications for authors (```filter (n() > ?)```), the years of interest, and even unsimplyfying the network. 
+
+**Gender in the Networks** 
+
+The major variable within the networks was tracking how *women* published in SF. The trickiest thing to studying gender and publication patterns is that ISFDB does not track gender. If you recall the creation of the tsv files, where 
+
+```
+authors %>% select(author_id,
+           author_canonical,
+           author_legalname,
+           author_lastname,
+           author_birthplace,
+           author_birthdate,
+           author_deathdate) %>%
+collect() %>% mutate(author_legalname=
+str_replace_all(author_legalname, regex("\t"), " ")) %>% write.table("tsv/authors.tsv", sep="\t", quote=F,
+                row.names=F, fileEncoding="UTF-8")
+``` 
+None of the database informations contains anything about gender (there's more information contained in the ISFDB files than we pulled into the tsv files - for example, the author's birthplace - but none of it was useful). 
+
+Because the database had no way to filter by gender, in this case, I relied on archival research - my own, and that done by other SF scholars - to create a list of female pulp writers active in the 1926-1946 period. I then used the power of ```str_detect``` to find these women and create new networks focused on their publication patterns - not without some bumps along the way. Here's an example: 
+
+``` 
+#filter known female authors and years of interest
+
+pulp_women_df <- giant_network  %>%  
+  select (pub_year, pub_title, author_canonical) %>%
+  filter (str_detect (author_canonical, ("^Leigh Brackett|^Frances M. Deegan|^Merab Eberle|^Sophie Wenzel Ellis|^Mona Farnsworth|^Mrs. Lee Hawkins Garby|^Frances Garfield|^L. Taylor Hansen|^Clare Winger Harris|^Hazel Heald|^E. Mayne Hull|^Amelia Reynolds Long|^Lilith Lorraine|^Kathleen Ludwick|^C. L. Moore|^Dorothy Quick|^Kaye Raymond|^Margaretta W. Rea|^Jane Rice|^Louise Rice|^Margaret Ronan|^Babette Rosmond|^Margaret St. Clair|^Lewis Padgett|^G. St. John-Loe|^I. M. Stephens|^Leslie F. Stone|^Doris Thomas|^Emma Vanne|^Ruth Washburn|^Helen Weinbaum|^Gabriel Wilson|^Lillian M. Ainsworth|^Thaedra Alden|^Pansy E. Black|^Dorothy Donnell Calhoun|^Clara E. Chesnutt|^Mollie Claire|^Clemence Dane|^Dorothy de Courcy|^Theodora Du Bois|^Norma Lazell Easton|^Augusta Groner|^Inez Haynes Irwin|^Millicent Holmberg|^Minna Irving|^Jessie Douglas Kerruish|^LesTina|^Winona McClintic|^Katherine Maclean|^Judith Merril|^Keith Hammond|^Hudson Hastings|^Maria Moravsky|^Marian O'Hearn|^Leslie Perri|^Margaretta W. Rea|^Amabel Redman|^Jane Rice|^Louise Rice|^Margaret Rogers|^M. F. Rupert|^Wilmar H. Shiras|^Francis Stevens|^Elma Wentz|^Gabriel Wilson|^Laura Withrow|^Frances Yerxa|^Vida Taylor Adams|^Marguerite Lynch Addis|^Edith M. Almedingen|^Frances Arthur|^Meredith Beyers|^Anne M. Bilbro|^Zealia B. Bishop|^Lady Anne Bonny|^Edna Goit Brintnall|^Mary S. Brown|^Dulcie Browne|^Loretta G. Burrough|^Brooke Byrne|^Grace M. Campbell|^Lenore E. Chaney|^Valma Clark|^Martha May Cockrill|^Ethel Helene Coen|^Eli Colter|^Mary Elizabeth Counselman|^Florence Crow|^Marjorie Darter|^Meredith Davis|^Miriam Allen de Ford|^Edith de Garis|^Leah Bodine Drake|^Elsie Ellis|^Mollie Frank Ellis|^Sophie Wenzel Ellis|^Betsy Emmons|^Mary McEnnery Erhard|^Caroline Evans|^Alice Drayton Farnham|^Effie W. Fifield|^Frances Garfield|^Louise Garwood|^Elizabeth Cleghorn Gaskell|^Myrtle Levy Gaylord|^Dorothea Gibbons|^Victoria Glad|^Gertrude Gordon|^Sonia H. Greene|^Allison V. Harding|^Lyllian Huntley Harris|^Margaret McBride Hoss|^Helen Rowe Henze|^Vennette Herron|^Terva Gaston Hubbard|^Mindret Lord|^Maebelle McCalment|^Laurie McClintock|^Sylvia Leone Mahler|^Isa-Belle Manzer|^Rachael Marshall|^Kadra Maysi|^Violet M. Methley|^Frances Bragg Middleton|^Bassett Morgan|^Sarah Newmeyer|^Dorothy Norwich|^Alice Olsen|^G. G. Pendarves|^Stella G. S. Perry|^Suzanne Pickett|^Mearle Prout|^Edith Lyle Ragsdale|^Ellen M. Ramsay|^Alicia Ramsey|^Sybla Ramus|^Helen M. Reid|^Susan Andrews Rice|^Eudora Ramsay Richardson|^Flavia Richardson|^Jean Richepin|^Katharine Metcalf Roof|^Gretchen Ruediger|^Edgar Saltus|^Sylvia B. Saltzberg|^Jane Scales|^Mary Sharon|^Schnirring|^Edna Bell Seward|^Ann Sloan|^Mrs. Chetwood Smith|^Lady Eleanor Smith|^Mrs. Harry Pugh Smith|^Emma-Lindsay Squier|^Marjorie Murch Stanley|^Francis Stevens|^Edith Lichty Stewart|^Pearl Norton Swet|^Gertrude Macaulay Sutton|^Tessida Swinges|^Fanny Kemble Johnson|^Mildred Johnson|^Helen W. Kasson|^Theda Kenyon|^Ida M. Kier|^Lois Lane|^Genevieve Larsson|^Greye La Spina|^Nadia Lavrova|^Helen Liello|^Signe Toksvig|^Louise Van de Verg|^Marilyn Venable|^Evangeline Walton|^Elizabeth Adt Wenzler|^Phyllis A. Whitney|^Everil Worrell|^Stella Wynne|^Katherine Yates|^Aalla Zaata|^L. M. Montgomery|^O. M. Cabral"))) %>%
+  filter (str_detect (pub_year, ("^1926|^1927|^1928|^1929|^1930|^1931|^1932|^1933|^1934|^1935|^1936|^1937|^1938|^1939|^1940|^1941|^1942|^1943|^1944|^1945|^1946"))) %>%
+  select (pub_title, author_canonical)
+
+#turn data into matrix, prepare for graphing
+
+(set.seed(42))
+
+pulp_women_matrix <- as.matrix (pulp_women_df) 
+pulp_women_graph <- graph.edgelist (pulp_women_matrix, directed=F)
+pulp_women_graph <- simplify (pulp_women_graph)
+
+(...add shapes and colors to graph) 
+
+plot (pulp_women_graph, vertex.color=vcolors, vertex.label=NA, vertex.size=5) 
+```
+The 

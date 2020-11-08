@@ -2,6 +2,8 @@
 
 This code uses R to analyze (gendered) patterns in publication, primarily through networks. It relies on tsv files of bibliographic material. The code could be used to investigate almost any publication pattern, depending both on the user's interests, and the information within the bibliographic files. 
 
+I used this code in order to analyze gendered patterns of publication in pulp science fiction magazines (1926-1946) for an article forthcoming in *Extrapolation.* You can follow along my process through this README.md file, and read the entire code at "pulp project attempt.Rmd."
+
 This software is free to use, copy, modify, and distribute under the MIT license (in other words, please credit me if you do use it). 
 
 **The Files**  
@@ -205,7 +207,7 @@ giant_network_df <- giant_network  %>%
   
   ``` 
  
-For *aesthetic* purposes - and, in fact, for access purposes - I added both shapes and colors to the nodes. This proved to be one of the most difficult parts of the process. While the printed version of the article version of this project will appear in Black and White, if you do network analysis of any stripe, I highly recommend that you not only commit to color, but consider accessibility in color (i.e: which colors work for colorblind readers). 
+For *aesthetic* purposes - and, in fact, for access purposes - I added both shapes and colors to the nodes. This proved to be one of the most difficult parts of the process. While the printed version of the article version of this project will appear in B/W, if you do network analysis of any stripe, I highly recommend that you not only commit to color, but consider accessibility (i.e: which colors work for colorblind readers). 
 
 ``` 
 #add shapes to nodes
@@ -240,6 +242,7 @@ This particular network will show the "prolific" authors who published in SF mag
 Other networks in this project were created by changing the number of publications for authors (```filter (n() > ?)```), the years of interest, and even unsimplyfying the network. 
 
 **Gender in the Networks** 
+*** 
 
 The major variable within the networks was tracking how *women* published in SF. The trickiest thing to studying gender and publication patterns is that ISFDB does not track gender. If you recall the creation of the tsv files, where 
 
@@ -280,4 +283,8 @@ pulp_women_graph <- simplify (pulp_women_graph)
 
 plot (pulp_women_graph, vertex.color=vcolors, vertex.label=NA, vertex.size=5) 
 ```
-The 
+This allowed me to get a pretty good measure of women's publication patterns in the 1926-1946 period in the SF pulps (and then to slice that data in different ways). 
+
+There are some big awkwardnesses with this code, the most of obvious of which is the overreliance on ```str_detect```. The use of ```str_detect``` for both filtering out women and years gave me some huge regular expressions to write, rewrite and copy. In the future, I would have first converted the string format dates to a numerical format (potentially ``` mutate(year=as.numeric(str_sub(pubdate, 1, 4)))```. Then you could limit the date range with ```filter(year >= 1938 & year <= 1946)```. Authors would be trickier, but you could write out a vector of author names, or store it in a separate text file, and then filter with ```filter (authors %in% women)```. 
+
+The entirety of the code I used to create every network is found on github, under "pulp project attempt.Rmd." (with annotations). Much credit is due to Rebecca Lipperini, my initial partner in codewriting (back in 2015), and to Andrew Goldstone, both for the tsv files and for help at critical junctures. The networks to which this code is attached are forthcoming in an article in *Extrapolation.* 

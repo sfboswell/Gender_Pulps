@@ -2,7 +2,7 @@
 
 This code uses R to analyze (gendered) patterns in publication, primarily through networks. It relies on tsv files of bibliographic material. The code could be used to investigate almost any publication pattern, depending both on the user's interests, and the information within the bibliographic files. 
 
-I used this code in order to analyze gendered patterns of publication in pulp science fiction magazines (1926-1946) for an article forthcoming in *Extrapolation.* You can follow along my process through this README.md file, and read the entire code at "pulp project attempt.Rmd."
+I used this code in order to analyze gendered patterns of publication in pulp science fiction magazines (1926-1946) for an article forthcoming in *Extrapolation.* You can follow along my process here, and read the entire code at "pulp project attempt.Rmd."
 
 This software is free to use, copy, modify, and distribute under the MIT license (in other words, please credit me if you do use it). 
 

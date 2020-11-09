@@ -10,9 +10,9 @@ This software is free to use, copy, modify, and distribute under the MIT license
 
 ***
 
-Before you do anything else, you're going to need some tsv files for R to analyze. If you already have tsv files of bibliographic information, you're ahead of the curve. In the case of the project I worked on, the bibliographic data I worked with did not exist in tsv files. It existed on the Internet Science Fiction Database (ISFDB) in MySQL format. 
+Before you do anything else, you're going to need some TSV files for R to analyze. If you already have TSV files of bibliographic information, you're ahead of the curve. In the case of the project I worked on, the bibliographic data I worked with did not exist in TSV files. It existed on the Internet Science Fiction Database (ISFDB) in MySQL format. 
 
-To replicate the process for getting these files - which is really Andrew Goldstone's process, since he initially came up with the MySQL to tsv transformation -  download  http://isfdb.s3.amazonaws.com/backups/backup-MySQL-55-2015-05-02.zip and unzip it. This will yield a big 466MB file, backup-MySQL-55-2015-05-02, which can be imported into a local MySQL database. One can then interact with the MySQL database from R using dyplr's "database connections" 
+To replicate the process for getting these files - which is really Andrew Goldstone's process (https://github.com/agoldst), since he initially came up with the MySQL to TSV transformation -  download  http://isfdb.s3.amazonaws.com/backups/backup-MySQL-55-2015-05-02.zip and unzip it. This will yield a big 466MB file, backup-MySQL-55-2015-05-02, which can be imported into a local MySQL database. One can then interact with the MySQL database from R using dyplr's "database connections" 
 
 ```
 library ("dyplr") 
@@ -24,10 +24,11 @@ you can see all the tables in the database with
 ``` 
 src_tbls(db)
 ``` 
-In order to get the data-frame objects representing individual tables, you can use the ```tbl``` function. The trick here is that you need to know what information you want in each table. Because we're exploring relationships and not just individual tables, you quickly run into a problem whereupon you have one table with the publication ID in it, one table with the publication name in it, one table with the publication year in it (etc.) - and no table that brings each of these pieces of information together. In other words, you're going to need to join some tables. 
+In order to get the data-frame objects representing individual tables, you can use the ```tbl``` function. The trick here is that you need to know what information you want in each table. Because we're exploring relationships and not just individual tables, you quickly run into a problem whereupon you have one table with the publication ID in it, one table with the publication name in it, one table with the publication year in it (etc.) - and no table that brings each of these pieces of information together. Thus, if you want to know which authors wrote which titles, that information (titles and authors) are stored in separate tables. To make some networks of publishing relationships, you're going to need to join some tables. 
 
-This will require exploring each table a little bit to figure out what information you want from each. For simplicity's sake, I've included how Andrew Goldstone initially created the tsv files for the gender_pulp project. 
+This will require exploring each table a little bit to figure out what information you want from each. For simplicity's sake, I've included the creation code for the TSV files for this gender_pulp project. 
 
+authors
 ```
 authors %>% select(author_id,
            author_canonical,
@@ -86,20 +87,21 @@ You can explore these files using read.table, with this code:
 
 ``` 
 # filename is whatever you need it to be
+
 read.table(filename, sep="\t", header=T, 
 stringsAsFactors=F, quote="", comment.char="", 
 encoding="UTF-8", fileEncoding="UTF-8")
 
 ``` 
 
-Crucially, when you move on to the network analysis portion, the tsv folder of the bibliographic data must be in the same folder as the filename.rmd., or else everything else goes to hell in a handbasket. Choose your working directory with care. 
+Crucially, when you move on to the network analysis portion, the TSV folder of the bibliographic data must be in the same folder as the filename.rmd., or else everything else goes to hell in a handbasket. Choose your working directory with care. 
 
 **Prepare the data for the networks** 
 *** 
 
-Once you've got tsv files with bibliographic (or other) data, you can move on to creating networks. But before you can even create some networks, you've got to filter the data. There's a tremendous amount of information within the tsv files, and only a small percentage of it will be of interest. 
+Once you've got TSV files with bibliographic (or other) data, you can move on to creating networks. But before you can even create some networks, you've got to filter the data. There's a tremendous amount of information within the TSV files, and only a small percentage of it will be of interest. Here's my process
 
-First, I read in the data from the tsv files (again, this is why it's crucial to choose your working directory with care, and to make sure the tsv folder is in the same folder as your file). 
+First, I read in the data from the TSV files. 
 
 The author data: 
 ``` 
@@ -134,9 +136,9 @@ You may want to filter down magazines or publications of interest at this point.
 
 ``` 
 our_canon <- pubs  %>% 
-           filter(str_detect(pub_title, ("^Amazing Stories|^Astounding Stories|^Wonder Stories|^Thrilling Wonder|^Planet Stories|^Startling Stories|^Fantastic       Adventures|^Weird Tales|^Astounding Science-Fiction")))
+           filter(str_detect(pub_title, ("^Amazing Stories|^Astounding Stories|^Wonder Stories|^Thrilling Wonder|^Planet Stories|^Startling Stories|^Fantastic Adventures|^Weird Tales|^Astounding Science-Fiction")))
 ```
-Having created a new canon ```our_canon```, now it's time to make sure the publication information we pulled out is tied to information about titles and authors 
+Having created a new dataset ```our_canon```, now it's time to make sure the publication information we pulled out is tied to information about titles and authors 
 
 ``` 
 #join publication information to information about the titles
@@ -151,12 +153,12 @@ inner_join (our_canon_df, by="title_id")  %>%
 inner_join (authors, by="author_id")
 
 ``` 
-ISFDB's database had a lot of small inconsistencies (for example, the magazine "Astounding" was called  "Astounding Science Fiction" for one entry
-and "Astounding Science-Fiction" for the next. Then something like Wonder Stories had multiple names over its run, so I needed a way to search for all of them at once. In order to make it possible to create networks of *all* the instances of Astounding (or any other magazine), I 
+ISFDB's database had a lot of small inconsistencies. The magazine "Astounding" was called  "Astounding Science Fiction" for one entry
+and "Astounding Science-Fiction" for the next; Wonder Stories had multiple names over its run (etc). In order to make it possible to create networks of *all* the instances of Astounding (or any other magazine), I 
 1. changed the names of the publication to one word for easier graphing/ searching using ```mutate``` and ```gsub``` 
 2. changed names of authors/magazines to compensate for database inconsistencies. 
 
-Some of those inconsistencies I only discovered mid-way through the research (for example, I'd make a network where I *knew* John Campbell should appear, and then he wasn't there, which is how I discovered his name had multiple spellings. The smoothing out of the bibliographic data was an iterative process. 
+Some of those inconsistencies I only discovered mid-way through the research (for example, I'd make a network where I *knew* John Campbell should appear, and then he wasn't there, which is how I discovered his name had multiple spellings. Smoothing out the bibliographic data was an iterative process. 
 
 ```
 giant_network <- our_canon_df   %>%  
@@ -178,16 +180,17 @@ Now you should have the basic data, represented here by ```giant_network```, to 
 **Creating the Networks** 
 *** 
 
-Finally, it's time to create the networks. Here, your interests will dictate what kind of networks you create. Assuming you're interested in replicating my process, here are the networks I created. 
+Finally, it's time to create the networks. Here, your interests will dictate what kind of networks you create. Assuming you're interested in replicating my process, these are the networks I created. 
 
-First, boilerplate information for RStudio to generate the figures (the networks) - I wanted something square. 
+First, boilerplate information for RStudio to generate the figures: 
+
 ``` 
 {r, fig.height=8, fig.width=8, fig.cap= "All authors with more than 5 works (1926-1946)" }
 ``` 
-Then I selected the years I was interested in (```filter (str_detect (pub_year) ``` )- in this case, I wanted to know publication patterns for the SF pulp period to the golden age (1926-1946). These years changed over the nearly half dozen years I worked on this project, but this ten year spread ended up being the easiest to work within. 
+Then I selected the years I was interested in ```filter (str_detect (pub_year) ```. In this case, I wanted to know publication patterns for the SF pulp period to the golden age (1926-1946). These years changed over the nearly half dozen years I worked on this project, but this ten year spread ended up being the easiest to work within. 
 
 
-I also filtered the data so it only included authors who wrote 5 or more works (```filter (n() > 5) %>%```) during the 1926-1946 period. Before I did this, the networks were nigh-unreadable because there were just so many authors.  
+I also filtered the data so it only included authors who wrote 5 or more works ```filter (n() > 5) %>%``` during the 1926-1946 period. Before I did this, the networks were nigh-unreadable because there were just so many authors.  
 
 ``` 
 giant_network_df <- giant_network  %>%  
@@ -207,7 +210,7 @@ giant_network_df <- giant_network  %>%
   
   ``` 
  
-For *aesthetic* purposes - and, in fact, for access purposes - I added both shapes and colors to the nodes. This proved to be one of the most difficult parts of the process. While the printed version of the article version of this project will appear in B/W, if you do network analysis of any stripe, I highly recommend that you not only commit to color, but consider accessibility (i.e: which colors work for colorblind readers). 
+For *aesthetic* purposes - and, in fact, for access purposes - I added both shapes and colors to the nodes. This proved to be one of the most difficult parts of the process. While the printed version of the article version of this project will appear in black and white, for accessibility reasons, it's worth committing to colors and shapes (and exploring other methods of explaining/displaying your data). 
 
 ``` 
 #add shapes to nodes
@@ -234,17 +237,18 @@ vcolors [V(giant_network_graph)$name == "Startling"] <- "red"
 vcolors [V(giant_network_graph)$name == "Planet"] <- "springgreen4"
 ``` 
 Finally, we plot the network! 
+
 ```
 plot (giant_network_graph, vertex.color=vcolors, vertex.size=4, vertex.label=NA) 
 ``` 
 This particular network will show the "prolific" authors who published in SF magazines between 1926-1946, and which magazines they published in. 
 
-Other networks in this project were created by changing the number of publications for authors (```filter (n() > ?)```), the years of interest, and even unsimplyfying the network. 
+Other networks in this project were created by unsimplifying the networks, changing the number of publications for authors ```filter (n() > ?)```, and narrowing or broadening the years of interest. 
 
 **Gender in the Networks** 
 *** 
 
-The major variable within the networks was tracking how *women* published in SF. The trickiest thing to studying gender and publication patterns is that ISFDB does not track gender. If you recall the creation of the tsv files, where 
+The major difficulty was tracking how *women* published in the SF pulps. The bibliographid data from the ISFDB does not track gender. If you recall the creation of the TSV files, where 
 
 ```
 authors %>% select(author_id,
@@ -258,9 +262,9 @@ collect() %>% mutate(author_legalname=
 str_replace_all(author_legalname, regex("\t"), " ")) %>% write.table("tsv/authors.tsv", sep="\t", quote=F,
                 row.names=F, fileEncoding="UTF-8")
 ``` 
-None of the database informations contains anything about gender (there's more information contained in the ISFDB files than we pulled into the tsv files - for example, the author's birthplace - but none of it was useful). 
+None of the database informations contains anything about gender (there's more information contained in the ISFDB files than we pulled into the TSV files - for example, the author's birthplace - but none of it was useful for gender purposes).  
 
-Because the database had no way to filter by gender, in this case, I relied on archival research - my own, and that done by other SF scholars - to create a list of female pulp writers active in the 1926-1946 period. I then used the power of ```str_detect``` to find these women and create new networks focused on their publication patterns - not without some bumps along the way. Here's an example: 
+Because the database had no way to filter by gender, in this case, I relied on archival research - my own, and that done by other SF scholars like Eric Davin - to create a list of female pulp writers active in the 1926-1946 period. I then used the power of ```str_detect``` to find these women and create new networks focused on their publication patterns - not without some bumps along the way. Here's an example: 
 
 ``` 
 #filter known female authors and years of interest
@@ -283,8 +287,11 @@ pulp_women_graph <- simplify (pulp_women_graph)
 
 plot (pulp_women_graph, vertex.color=vcolors, vertex.label=NA, vertex.size=5) 
 ```
-This allowed me to get a pretty good measure of women's publication patterns in the 1926-1946 period in the SF pulps (and then to slice that data in different ways). 
 
-There are some big awkwardnesses with this code, the most of obvious of which is the overreliance on ```str_detect```. The use of ```str_detect``` for both filtering out women and years gave me some huge regular expressions to write, rewrite and copy. In the future, I would have first converted the string format dates to a numerical format (potentially ``` mutate(year=as.numeric(str_sub(pubdate, 1, 4)))```. Then you could limit the date range with ```filter(year >= 1938 & year <= 1946)```. Authors would be trickier, but you could write out a vector of author names, or store it in a separate text file, and then filter with ```filter (authors %in% women)```. 
+This allowed me to get a pretty good measure of women's publication patterns in the 1926-1946 period in the SF pulps, and then to slice that data in different ways. 
 
-The entirety of the code I used to create every network is found on github, under "pulp project attempt.Rmd." (with annotations). Much credit is due to Rebecca Lipperini, my initial partner in codewriting (back in 2015), and to Andrew Goldstone, both for the tsv files and for help at critical junctures. The networks to which this code is attached are forthcoming in an article in *Extrapolation.* 
+This code has some clear clunkiness, the most obvious of which is the overreliance on ```str_detect```. The use of ```str_detect``` for both filtering out women and years gave me some huge regular expressions to write, rewrite, and copy. In the future, I would have first converted the string format dates to a numerical format (potentially ``` mutate(year=as.numeric(str_sub(pubdate, 1, 4)))```. Then I could limit the date range with ```filter(year >= 1938 & year <= 1946)```. 
+
+Authors would be trickier, but you could write out a vector of author names, or store it in a separate text file, and then filter with ```filter (authors %in% women)```. 
+
+The entirety of the code I used to create every network is found on github, under "pulp project attempt.Rmd." (with annotations). Much credit is due to Rebecca Lipperini, my initial partner in codewriting (back in 2015), and to Andrew Goldstone, both for the TSV files and for help at critical junctures. The networks to which this code is attached are forthcoming in an article in *Extrapolation.* 
